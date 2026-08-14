@@ -193,18 +193,37 @@ function logBold(_0x2b6c0a) {
   );
 }
 const jar = new CookieJar(),
+  // Explicit keep-alive agents = TCP/TLS connection reuse across every request
+  // (no handshake per call). This is what makes repeated fetches + the submit fast.
+  keepAliveHttpsAgent = new https.Agent({
+    keepAlive: true,
+    keepAliveMsecs: 1000,
+    maxSockets: parseInt(process.env.HTTP_MAX_SOCKETS || "64", 10),
+    maxFreeSockets: parseInt(process.env.HTTP_MAX_FREE || "32", 10),
+    rejectUnauthorized: false,
+    scheduling: "lifo",
+  }),
+  keepAliveHttpAgent = new (require("http").Agent)({
+    keepAlive: true,
+    keepAliveMsecs: 1000,
+    maxSockets: parseInt(process.env.HTTP_MAX_SOCKETS || "64", 10),
+    maxFreeSockets: parseInt(process.env.HTTP_MAX_FREE || "32", 10),
+  }),
   client = wrapper(
     axios["create"]({
       jar: jar,
       baseURL: CONFIG["BASE_URL"],
       withCredentials: !![],
+      httpsAgent: keepAliveHttpsAgent,
+      httpAgent: keepAliveHttpAgent,
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
+        Connection: "keep-alive",
       },
       auth: { username: CONFIG["USER_ID"], password: CONFIG["PASSWORD"] },
       maxRedirects: 0xa,
-      timeout: 0x7530,
+      timeout: parseInt(process.env.HTTP_TIMEOUT_MS || "30000", 10),
     }),
   );
 let csrfToken = null,
@@ -2903,11 +2922,8 @@ async function runWindowCycle() {
     "PHASE 2 (window OPEN): instant flush of ready-queue, then continuous submit until slot end.",
   );
 
-  // Freshest snapshot at the moment of open, then flush immediately.
-  windowStats.fetches++;
-  await fetchBidOrderList();
-  applyCsvDataToOrders();
-
+  // FASTEST PATH: flush the ready-queue prepared during PHASE 1 *immediately* — no extra
+  // fetch round-trip before the critical submit (wins tie-breaks decided by submit time).
   if (hasActiveCsvBatch()) {
     const before = submittedCount();
     countHandled1164();
@@ -2915,7 +2931,21 @@ async function runWindowCycle() {
     prefetchCaptcha = null;
     windowStats.submittedBatches += submittedCount() - before;
   } else {
-    logInfo("No matched orders ready at open — will keep fetching this window.");
+    // Nothing was ready at open — fetch once, then flush if anything matched.
+    windowStats.fetches++;
+    await fetchBidOrderList();
+    applyCsvDataToOrders();
+    if (hasActiveCsvBatch()) {
+      const before = submittedCount();
+      countHandled1164();
+      await runAutoBatchSubmission(prefetchCaptcha);
+      prefetchCaptcha = null;
+      windowStats.submittedBatches += submittedCount() - before;
+    } else {
+      logInfo(
+        "No matched orders ready at open — will keep fetching this window.",
+      );
+    }
   }
 
   // Continuous loop for the remainder of the slot (the real fix: orders that
@@ -2933,8 +2963,8 @@ async function runWindowCycle() {
       await runAutoBatchSubmission(null);
       windowStats.submittedBatches += submittedCount() - before;
     } else {
-      // Nothing to submit right now — brief pause, then fetch again (never idle-give-up)
-      await sleep(remaining < 1000 ? 100 : 200);
+      // Nothing new to submit right now — pause a bit (also cuts log spam), then fetch again.
+      await sleep(remaining < 1500 ? 200 : 800);
     }
   }
 
