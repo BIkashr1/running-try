@@ -193,33 +193,18 @@ function logBold(_0x2b6c0a) {
   );
 }
 const jar = new CookieJar(),
-  // Explicit keep-alive agents = TCP/TLS connection reuse across every request
-  // (no handshake per call). This is what makes repeated fetches + the submit fast.
-  keepAliveHttpsAgent = new https.Agent({
-    keepAlive: true,
-    keepAliveMsecs: 1000,
-    maxSockets: parseInt(process.env.HTTP_MAX_SOCKETS || "64", 10),
-    maxFreeSockets: parseInt(process.env.HTTP_MAX_FREE || "32", 10),
-    rejectUnauthorized: false,
-    scheduling: "lifo",
-  }),
-  keepAliveHttpAgent = new (require("http").Agent)({
-    keepAlive: true,
-    keepAliveMsecs: 1000,
-    maxSockets: parseInt(process.env.HTTP_MAX_SOCKETS || "64", 10),
-    maxFreeSockets: parseInt(process.env.HTTP_MAX_FREE || "32", 10),
-  }),
+  // NOTE: axios-cookiejar-support (http-cookie-agent, undici-based) apna khud ka
+  // cookie-aware keep-alive agent manage karta hai — isliye yahan custom httpsAgent/
+  // httpAgent pass NAHI karna (warna "does not support for use with other http(s).Agent").
+  // Connection reuse / keep-alive already undici ke through active hai.
   client = wrapper(
     axios["create"]({
       jar: jar,
       baseURL: CONFIG["BASE_URL"],
       withCredentials: !![],
-      httpsAgent: keepAliveHttpsAgent,
-      httpAgent: keepAliveHttpAgent,
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        Connection: "keep-alive",
       },
       auth: { username: CONFIG["USER_ID"], password: CONFIG["PASSWORD"] },
       maxRedirects: 0xa,
