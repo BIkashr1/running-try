@@ -253,10 +253,25 @@ function newWindowStats(slot) {
     submittedBatches: 0,
     handled1164: 0,
     uncertain: 0,
+    netLatencyMs: null,
+    captchaPolls: 0,
+    captchaUnlockMs: null,
+    captchaFetchMs: null,
+    firstSubmitMs: null,
   };
 }
 function isSpi1164(spi) {
   return String(spi || "").replace(/[^0-9]/g, "").trim() === "1164";
+}
+// HTTPS round-trip latency probe to SAP (like latency.js)
+async function measureLatency() {
+  const t0 = Date.now();
+  try {
+    await client.head("/");
+  } catch (e) {
+    /* status/auth errors still give a valid round-trip time */
+  }
+  return Date.now() - t0;
 }
 async function login() {
   const _0x37382f = a0_0x5cae94;
@@ -2743,6 +2758,18 @@ function logWindowSummary() {
       " | Uncertain responses: " +
       windowStats.uncertain,
   );
+  logInfo(
+    "Latency: net=" +
+      (windowStats.netLatencyMs == null ? "?" : windowStats.netLatencyMs + "ms") +
+      " | captcha-unlock-detect=" +
+      (windowStats.captchaUnlockMs == null
+        ? "?"
+        : windowStats.captchaUnlockMs + "ms/" + windowStats.captchaPolls + "polls") +
+      " | captcha-fetch=" +
+      (windowStats.captchaFetchMs == null ? "?" : windowStats.captchaFetchMs + "ms") +
+      " | first-submit=" +
+      (windowStats.firstSubmitMs == null ? "?" : windowStats.firstSubmitMs + "ms"),
+  );
 }
 
 function submittedCount() {
@@ -2864,18 +2891,21 @@ async function runWindowCycle() {
     return;
   }
 
-  let prefetchCaptcha = null;
   let reloggedFinal = false;
 
-  // ─────────────── PHASE 1: PRE-WINDOW (fetch→match→ready, NO submit) ───────────────
+  // ───────── PHASE 1: PRE-WINDOW (fetch→match→ready. NO captcha, NO submit) ─────────
+  // IMPORTANT: captcha ko pehle se solve NAHI karte. SAP har submit se pehle FRESH captcha
+  // deta hai jo sirf window UNLOCK hone par milta hai. Pehle se solve kiya captcha SAP reject
+  // kar deta hai. Isliye yahan sirf orders fetch + match karke ready-queue banate hain;
+  // captcha ko window open ke waqt (unlock detect karke) hi fetch + solve karenge.
   if (adjustedNow() < timing.startTime) {
     logBold(
-      "PHASE 1 (pre-window): continuous fetch → match → ready-queue. Submit held until window opens.",
+      "PHASE 1 (pre-window): continuous fetch → match → ready-queue. No captcha, no submit yet.",
     );
     let lastLog = 0;
-    while (adjustedNow() < timing.startTime) {
+    // Captcha-unlock polling ~1.2s pehle shuru karenge (clock drift ke liye headroom)
+    while (adjustedNow() < timing.startTime - 1200) {
       const remaining = timing.startTime - adjustedNow();
-
       windowStats.fetches++;
       await fetchBidOrderList();
       applyCsvDataToOrders(); // builds priority batches; HELD (not submitted)
@@ -2895,57 +2925,77 @@ async function runWindowCycle() {
         lastLog = Date.now();
       }
 
-      // Refresh session ~60s before open
+      // Refresh session ~60s before open + measure network latency once
       if (remaining <= 60000 && !reloggedFinal) {
         await login();
         reloggedFinal = true;
+        windowStats.netLatencyMs = await measureLatency();
+        logInfo("🌐 Network latency to SAP: " + windowStats.netLatencyMs + "ms");
       }
 
-      // Near open: pre-solve a captcha so we can flush instantly at open
-      if (remaining <= 3000) {
-        const img = await fetchCaptcha(true);
-        if (img) {
-          const sol = await solveCaptcha(img);
-          if (sol) prefetchCaptcha = sol;
-        }
-        await sleep(remaining <= 200 ? Math.max(remaining, 10) : 150);
-      } else if (remaining <= 30000) {
-        await sleep(500);
-      } else {
-        await sleep(1000);
-      }
+      await sleep(remaining <= 30000 ? 500 : 1000);
     }
   }
 
-  // ─────────────── PHASE 2: WINDOW OPEN (instant flush → loop full slot) ───────────────
-  logBold(
-    "PHASE 2 (window OPEN): instant flush of ready-queue, then continuous submit until slot end.",
-  );
+  // Freshest match right at the edge so ready-queue reflects the latest orders
+  await fetchBidOrderList();
+  applyCsvDataToOrders();
 
-  // FASTEST PATH: flush the ready-queue prepared during PHASE 1 *immediately* — no extra
-  // fetch round-trip before the critical submit (wins tie-breaks decided by submit time).
+  // ───────── UNLOCK DETECTION: poll SAP captcha. First available captcha = window OPEN ─────────
+  // Jaise hi captcha available ho (SAP unlock), USI fresh captcha ko solve karke turant submit.
+  logBold(
+    "PHASE 2: polling SAP captcha to detect UNLOCK (true window-open signal)...",
+  );
+  let unlockSol = null;
+  let unlockImg = null;
+  const pollStart = Date.now();
+  while (adjustedNow() < timing.endTime) {
+    windowStats.captchaPolls++;
+    const tF = Date.now();
+    unlockImg = await fetchCaptcha(true); // null = still locked; image = UNLOCKED
+    if (unlockImg) {
+      windowStats.captchaFetchMs = Date.now() - tF;
+      windowStats.captchaUnlockMs = Date.now() - pollStart;
+      logOk(
+        "🔓 Captcha UNLOCKED after " +
+          windowStats.captchaPolls +
+          " polls / " +
+          windowStats.captchaUnlockMs +
+          "ms | fetch=" +
+          windowStats.captchaFetchMs +
+          "ms",
+      );
+      unlockSol = await solveCaptcha(unlockImg); // FRESH captcha, solved AT unlock
+      break;
+    }
+    await sleep(parseInt(process.env.FAST_MAX_DELAY_MS || "20", 10));
+  }
+
+  if (!unlockSol) {
+    logWarn(
+      "Captcha never unlocked before slot end — nothing submitted this window.",
+    );
+    logWindowSummary();
+    return;
+  }
+
+  // ───────── INSTANT SUBMIT using the unlock-moment fresh captcha ─────────
+  if (!hasActiveCsvBatch()) {
+    await fetchBidOrderList();
+    applyCsvDataToOrders();
+  }
   if (hasActiveCsvBatch()) {
     const before = submittedCount();
     countHandled1164();
-    await runAutoBatchSubmission(prefetchCaptcha);
-    prefetchCaptcha = null;
+    const tS = Date.now();
+    await runAutoBatchSubmission(unlockSol);
+    windowStats.firstSubmitMs = Date.now() - tS;
     windowStats.submittedBatches += submittedCount() - before;
+    logInfo("⏱ First submit round completed in " + windowStats.firstSubmitMs + "ms");
   } else {
-    // Nothing was ready at open — fetch once, then flush if anything matched.
-    windowStats.fetches++;
-    await fetchBidOrderList();
-    applyCsvDataToOrders();
-    if (hasActiveCsvBatch()) {
-      const before = submittedCount();
-      countHandled1164();
-      await runAutoBatchSubmission(prefetchCaptcha);
-      prefetchCaptcha = null;
-      windowStats.submittedBatches += submittedCount() - before;
-    } else {
-      logInfo(
-        "No matched orders ready at open — will keep fetching this window.",
-      );
-    }
+    logInfo(
+      "Window open but no matched orders ready yet — will keep fetching this window.",
+    );
   }
 
   // Continuous loop for the remainder of the slot (the real fix: orders that

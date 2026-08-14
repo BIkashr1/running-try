@@ -20,7 +20,16 @@ Standalone Node.js. axios + axios-cookiejar-support + tough-cookie + dotenv. Tru
 - Delete guard: bidRow.KunagName1 in delete.csv `Customer` → skip
 
 ## What's implemented (2026-06)
-- Deobfuscated the obfuscated script (webcrack failed on node20; used custom RC4-decoder dump → 990 strings decoded).
+- Deobfuscated the obfuscated script (webcrack failed on node20; custom RC4 decoder dumped 990 strings).
+- 2-phase continuous engine (Phase1 pre-window fetch→match→ready hold; Phase2 window-open submit loop to slot end).
+- SPI-1164-first priority sorter, max-3 atomic-group batcher, per-window submittedKeys guard, per-window logging.
+
+### Update 2 — captcha-unlock model + speed + latency
+- REMOVED pre-solve captcha (SAP rejects a captcha fetched before unlock). Engine now POLLS `fetchCaptcha` every ~20ms; the FIRST available captcha = window unlock = window open → solve THAT fresh captcha and submit instantly. Every subsequent batch fetches a fresh captcha too.
+- Added keep-alive https/http agents (connection reuse) for faster round-trips. undici NOT used/needed.
+- Added latency metrics: network latency (HEAD probe like latency.js), captcha unlock-detect ms + poll count, captcha fetch ms, first-submit ms — logged + in window summary.
+- Tests (sandbox, SAP stubbed): flow v2 5/5 (poll-until-unlock, submit uses unlock-moment captcha, latency captured, 1164 submitted); priority regression pass.
+- ⚠️ "Same amount by other vendor" rejection = pricing tie (not speed). Auto-lower-on-tie strategy NOT added (awaiting user decision). (webcrack failed on node20; used custom RC4-decoder dump → 990 strings decoded).
 - Rewrote scheduler/loop into 2-phase continuous engine:
   - PHASE 1 pre-window: fetch→match→ready-queue, NO submit.
   - PHASE 2 window open: instant flush (prefetched captcha) → loop fetch→match→submit until SAP SlotEnd.
