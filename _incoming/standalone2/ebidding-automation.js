@@ -2915,8 +2915,11 @@ async function runWindowCycle() {
       "PHASE 1 (pre-window): continuous fetch → match → ready-queue. No captcha, no submit yet.",
     );
     let lastLog = 0;
-    // Captcha-unlock polling ~1.2s pehle shuru karenge (clock drift ke liye headroom)
-    while (adjustedNow() < timing.startTime - 1200) {
+    // Captcha-unlock polling window khulne se CAPTCHA_POLL_LEAD_MS pehle shuru hoga
+    // (default 5s). Isse SAP jis pal captcha unlock kare, usi instant catch kar lete hain
+    // (clock drift / SAP thoda jaldi khole to bhi miss nahi hoga).
+    const pollLead = parseInt(process.env.CAPTCHA_POLL_LEAD_MS || "5000", 10);
+    while (adjustedNow() < timing.startTime - pollLead) {
       const remaining = timing.startTime - adjustedNow();
       windowStats.fetches++;
       await fetchBidOrderList();
@@ -2956,8 +2959,14 @@ async function runWindowCycle() {
 
   // ───────── UNLOCK DETECTION: poll SAP captcha. First available captcha = window OPEN ─────────
   // Jaise hi captcha available ho (SAP unlock), USI fresh captcha ko solve karke turant submit.
+  // Polling window khulne se ~CAPTCHA_POLL_LEAD_MS pehle START hoti hai (light rate), aur edge
+  // par aggressive ho jaati hai — taaki unlock ka exact pal pakad ke sabse pehle submit karein.
+  const _lead = parseInt(process.env.CAPTCHA_POLL_LEAD_MS || "5000", 10);
+  const _fast = parseInt(process.env.FAST_MAX_DELAY_MS || "20", 10);
   logBold(
-    "PHASE 2: polling SAP captcha to detect UNLOCK (true window-open signal)...",
+    "PHASE 2: polling SAP captcha to detect UNLOCK (started ~" +
+      Math.max(0, Math.round((timing.startTime - adjustedNow()) / 100) / 10) +
+      "s before open)...",
   );
   let unlockSol = null;
   let unlockImg = null;
@@ -2985,7 +2994,8 @@ async function runWindowCycle() {
       // solve gave "Redo"/empty → DO NOT abandon window; fetch a fresh captcha & retry
       continue;
     }
-    await sleep(parseInt(process.env.FAST_MAX_DELAY_MS || "20", 10));
+    // Adaptive: open se >0.5s door => light poll (200ms); edge par => aggressive (_fast)
+    await sleep(adjustedNow() < timing.startTime - 500 ? 200 : _fast);
   }
 
   if (!unlockSol) {
