@@ -2922,8 +2922,9 @@ async function runWindowCycle() {
     }
   }
 
-  // Freshest match right at the edge so ready-queue reflects the latest orders
-  await fetchBidOrderList();
+  // Ready-queue ko latest data se build karo — yahan koi BLOCKING fetch NAHI (warna submit
+  // ek pura round-trip (~2-3s) late ho jaata, wahi "3 sec baad save" wali problem thi).
+  // Jo orders theek open ke waqt aate hain wo pehle instant-flush ke baad in-window loop uthata hai.
   applyCsvDataToOrders();
 
   // ───────── UNLOCK DETECTION: poll SAP captcha. First available captcha = window OPEN ─────────
