@@ -2953,7 +2953,7 @@ async function runWindowCycle() {
   // Polling window khulne se ~CAPTCHA_POLL_LEAD_MS pehle START hoti hai (light rate), aur edge
   // par aggressive ho jaati hai — taaki unlock ka exact pal pakad ke sabse pehle submit karein.
   const _lead = parseInt(process.env.CAPTCHA_POLL_LEAD_MS || "5000", 10);
-  const _fast = parseInt(process.env.FAST_MAX_DELAY_MS || "20", 10);
+  const _fast = parseInt(process.env.FAST_MAX_DELAY_MS || "10", 10);
   logBold(
     "PHASE 2: polling SAP captcha to detect UNLOCK (started ~" +
       Math.max(0, Math.round((timing.startTime - adjustedNow()) / 100) / 10) +
@@ -2985,8 +2985,8 @@ async function runWindowCycle() {
       // solve gave "Redo"/empty → DO NOT abandon window; fetch a fresh captcha & retry
       continue;
     }
-    // Adaptive: open se >0.5s door => light poll (200ms); edge par => aggressive (_fast)
-    await sleep(adjustedNow() < timing.startTime - 500 ? 200 : _fast);
+    // Back-to-back polling (jaise old secure.js): unlock ka exact pal turant pakdo → sabse pehle submit
+    await sleep(_fast);
   }
 
   if (!unlockSol) {
