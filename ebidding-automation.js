@@ -1845,17 +1845,8 @@ function prepareCsvBatches(_0x1ae1fb) {
       ((csvBatchState["groupsByKey"][_0x3b70ae["key"]] = _0x3b70ae),
         !_0x3a87e7[_0x3b70ae["key"]] && _0x3e490c["push"](_0x3b70ae["key"]));
     }));
-  // ── PRIORITY SORT (added): SPI-1164 first → singles → groups. Stable within tier. ──
-  _0x3e490c.sort((_kA, _kB) => {
-    const _gA = csvBatchState["groupsByKey"][_kA],
-      _gB = csvBatchState["groupsByKey"][_kB];
-    const _rank = (_g) => {
-      if (!_g) return 3;
-      if (_g.rows.some((_r) => isSpi1164(_r.item && _r.item["Spi"]))) return 0;
-      return _g.rows.length === 1 ? 1 : 2;
-    };
-    return _rank(_gA) - _rank(_gB);
-  });
+  // SPI-1164 priority REMOVED (user request): jo match mile use natural order me utha lo.
+  // Sirf greedy fill (max CSV_BATCH_SIZE) + group atomic — koi SPI ranking nahi.
   const _0x4d3a58 = CONFIG["CSV_BATCH_SIZE"] || 0x3;
   let _0xfaf359 = [],
     _0x4814e4 = 0x0;

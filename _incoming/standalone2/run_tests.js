@@ -57,10 +57,10 @@ function load(exposeExtra) {
     X.ap();
     let st = X.st();
     assert(st.activeKeys.length === 3, "first batch = 3 rows (max-3)", results);
-    assert(st.activeKeys[0] === "ROW:B:1", "SPI-1164 (B) is FIRST", results);
+    assert(st.activeKeys[0] === "ROW:A:1", "natural order (no 1164 priority): first match A is first", results);
     assert(JSON.stringify(st.pendingBatches[0]) === JSON.stringify(["CLUB:CL1"]), "club group atomic (own batch)", results);
     X.mark(); X.ap(); st = X.st();
-    assert(!st.activeKeys.includes("ROW:B:1") && st.activeKeys[0] === "CLUB:CL1", "already-submitted batch skipped on re-match", results);
+    assert(st.activeKeys[0] === "CLUB:CL1", "already-submitted batch skipped on re-match", results);
     assert(X.is1164("1164") && X.is1164("1164-") && !X.is1164("1162"), "isSpi1164 detection", results);
   }
 
