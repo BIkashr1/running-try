@@ -596,7 +596,7 @@ function saveRankRecordsToCsv(_0x5800a4) {
   const _0x3b5435 = a0_0x5cae94;
   if (!_0x5800a4 || _0x5800a4["length"] === 0x0) return;
   const _0x3cfeaa = path["resolve"](
-      process.env.RANK_CSV_FILE || "./files/rank_records.csv",
+      process.env.RANK_CSV_FILE || "./rank_records.csv",
     ),
     _0x15d47b = fs["existsSync"](_0x3cfeaa),
     _0x40ff49 = new Date()["toISOString"](),
@@ -2724,6 +2724,33 @@ function countHandled1164() {
   });
 }
 
+// Show exactly which orders (Destination / SPI / Amount) are about to be bid
+function logActiveBatchDetails(tag) {
+  const keys = csvBatchState["activeKeys"] || [];
+  if (keys.length === 0) return;
+  logBold("📤 " + (tag || "SUBMITTING") + " this batch:");
+  keys.forEach((k) => {
+    const g = csvBatchState["groupsByKey"][k];
+    if (!g) return;
+    g.rows.forEach((r) => {
+      const it = r.item || {};
+      logInfo(
+        "   • Dest: " +
+          (it["DestCityDesc"] || "?") +
+          " | SPI: " +
+          (it["Spi"] || "?") +
+          " | Amount: " +
+          r.bidAmount +
+          " | Order: " +
+          (it["SapOrderId"] || "?") +
+          "/" +
+          (it["Posnr"] || "?") +
+          (isSpi1164(it["Spi"]) ? "   ⭐ 1164" : ""),
+      );
+    });
+  });
+}
+
 function logWindowSummary() {
   if (!windowStats) return;
   logBold("═══ WINDOW SUMMARY (slot " + windowStats.slot + ") ═══");
@@ -2940,26 +2967,30 @@ async function runWindowCycle() {
     const tF = Date.now();
     unlockImg = await fetchCaptcha(true); // null = still locked; image = UNLOCKED
     if (unlockImg) {
-      windowStats.captchaFetchMs = Date.now() - tF;
-      windowStats.captchaUnlockMs = Date.now() - pollStart;
-      logOk(
-        "🔓 Captcha UNLOCKED after " +
-          windowStats.captchaPolls +
-          " polls / " +
-          windowStats.captchaUnlockMs +
-          "ms | fetch=" +
-          windowStats.captchaFetchMs +
-          "ms",
-      );
+      if (windowStats.captchaUnlockMs == null) {
+        windowStats.captchaFetchMs = Date.now() - tF;
+        windowStats.captchaUnlockMs = Date.now() - pollStart;
+        logOk(
+          "🔓 Captcha UNLOCKED after " +
+            windowStats.captchaPolls +
+            " polls / " +
+            windowStats.captchaUnlockMs +
+            "ms | fetch=" +
+            windowStats.captchaFetchMs +
+            "ms",
+        );
+      }
       unlockSol = await solveCaptcha(unlockImg); // FRESH captcha, solved AT unlock
-      break;
+      if (unlockSol) break; // got a solved captcha → go submit
+      // solve gave "Redo"/empty → DO NOT abandon window; fetch a fresh captcha & retry
+      continue;
     }
     await sleep(parseInt(process.env.FAST_MAX_DELAY_MS || "20", 10));
   }
 
   if (!unlockSol) {
     logWarn(
-      "Captcha never unlocked before slot end — nothing submitted this window.",
+      "Slot ended before a captcha could be solved — nothing submitted this window.",
     );
     logWindowSummary();
     return;
@@ -2973,6 +3004,7 @@ async function runWindowCycle() {
   if (hasActiveCsvBatch()) {
     const before = submittedCount();
     countHandled1164();
+    logActiveBatchDetails("FLUSH (window just opened)");
     const tS = Date.now();
     await runAutoBatchSubmission(unlockSol);
     windowStats.firstSubmitMs = Date.now() - tS;
@@ -2996,6 +3028,7 @@ async function runWindowCycle() {
     if (hasActiveCsvBatch()) {
       const before = submittedCount();
       countHandled1164();
+      logActiveBatchDetails("SUBMITTING (in-window)");
       await runAutoBatchSubmission(null);
       windowStats.submittedBatches += submittedCount() - before;
     } else {
