@@ -229,6 +229,18 @@ let csrfToken = null,
   };
 // ── Per-window stats + SPI-1164 priority helper (added) ──
 let windowStats = null;
+let captchaPool = []; // pre-solved captchas ready to use INSTANTLY (fresh, window-scoped)
+async function _solveOneToPool() {
+  try {
+    const img = await fetchCaptcha(true);
+    if (!img) return;
+    const sol = await solveCaptcha(img);
+    if (sol) captchaPool.push(sol);
+  } catch (e) {}
+}
+function fillCaptchaPoolBg(n) {
+  for (let i = 0; i < n; i++) _solveOneToPool(); // fire in parallel, don't await
+}
 function newWindowStats(slot) {
   return {
     slot: slot || "",
@@ -2310,6 +2322,12 @@ async function solveCaptcha(_0x4727d8) {
 }
 async function fetchAndSolveCaptcha(_0x540120 = 0xa) {
   const _0x45945d = a0_0x5cae94;
+  // Instant path: agar background pool me pehle se solved captcha hai to wahi use karo (0ms)
+  if (captchaPool.length > 0) {
+    const _pooled = captchaPool.shift();
+    logOk("⚡ Using pre-solved captcha from pool (instant retry)");
+    return _pooled;
+  }
   for (let _0x348511 = 0x1; _0x348511 <= _0x540120; _0x348511++) {
     if ("tNDVd" === "tNDVd") {
       log("Captcha attempt " + _0x348511 + "/" + _0x540120 + "...");
@@ -2875,6 +2893,7 @@ async function runWindowCycle() {
   // Per-window memory: resetCsvBatchState() wipes submittedKeys automatically when
   // SlotNumber changes; windowStats is fresh per window.
   windowStats = newWindowStats(timing.slot);
+  captchaPool = []; // purane window ke stale captchas clear
 
   // DRY RUN: quick validation (login + fetch + match + captcha), no waiting, no bids.
   if (CONFIG["DRY_RUN"]) {
@@ -2981,7 +3000,10 @@ async function runWindowCycle() {
         );
       }
       unlockSol = await solveCaptcha(unlockImg); // FRESH captcha, solved AT unlock
-      if (unlockSol) break; // got a solved captcha → go submit
+      if (unlockSol) {
+        fillCaptchaPoolBg(2); // background: 2 spare captchas → instant retry if this one is wrong
+        break; // got a solved captcha → go submit
+      }
       // solve gave "Redo"/empty → DO NOT abandon window; fetch a fresh captcha & retry
       continue;
     }
