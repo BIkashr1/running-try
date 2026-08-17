@@ -2323,12 +2323,6 @@ async function solveCaptcha(_0x4727d8) {
 }
 async function fetchAndSolveCaptcha(_0x540120 = 0xa) {
   const _0x45945d = a0_0x5cae94;
-  // Instant path: agar background pool me pehle se solved captcha hai to wahi use karo (0ms)
-  if (captchaPool.length > 0) {
-    const _pooled = captchaPool.shift();
-    logOk("⚡ Using pre-solved captcha from pool (instant retry)");
-    return _pooled;
-  }
   for (let _0x348511 = 0x1; _0x348511 <= _0x540120; _0x348511++) {
     if ("tNDVd" === "tNDVd") {
       log("Captcha attempt " + _0x348511 + "/" + _0x540120 + "...");
@@ -3000,11 +2994,8 @@ async function runWindowCycle() {
             "ms",
         );
       }
-      unlockSol = await solveCaptcha(unlockImg); // FRESH captcha, solved AT unlock
-      if (unlockSol) {
-        fillCaptchaPoolBg(4); // background: 4 spare captchas → wrong-captcha retries instant
-        break; // got a solved captcha → go submit
-      }
+      unlockSol = await solveCaptcha(unlockImg); // SAP ka CURRENT captcha (yahi valid hai)
+      if (unlockSol) break; // got a solved captcha → go submit
       // solve gave "Redo"/empty → DO NOT abandon window; fetch a fresh captcha & retry
       continue;
     }
