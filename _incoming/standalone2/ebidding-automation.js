@@ -2207,6 +2207,7 @@ async function getCaptchaFromApi(_0x13ca67, _0x130585) {
             userid: captchaCreds["userid"],
             apikey: captchaCreds["apikey"],
             data: _0x13ca67,
+            case: process.env.TRUECAPTCHA_CASE || "mixed",
           },
           { timeout: 0x2710 },
         ),
@@ -3001,7 +3002,7 @@ async function runWindowCycle() {
       }
       unlockSol = await solveCaptcha(unlockImg); // FRESH captcha, solved AT unlock
       if (unlockSol) {
-        fillCaptchaPoolBg(2); // background: 2 spare captchas → instant retry if this one is wrong
+        fillCaptchaPoolBg(4); // background: 4 spare captchas → wrong-captcha retries instant
         break; // got a solved captcha → go submit
       }
       // solve gave "Redo"/empty → DO NOT abandon window; fetch a fresh captcha & retry
