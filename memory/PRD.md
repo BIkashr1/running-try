@@ -54,3 +54,18 @@ Standalone Node.js. axios + axios-cookiejar-support + tough-cookie + dotenv. Tru
 - Zero-delay flush confirmed: after `unlockSol`, no `sleep()` before `runAutoBatchSubmission`; guarded `fetchBidOrderList()` only runs when ready-queue empty (per user: ready → submit instantly; empty → fetch+match so bid not missed).
 - Note: dead `< 0.4` @L2484 lives in unreachable `else` of `if("AXvyU"==="AXvyU")` — never executes (left as-is per user).
 - Tests: `node -c` OK; mock suite `/app/_incoming/standalone2/run_tests.js` → 11 passed, 0 failed (first-submit=0ms, captcha-fetch=0ms). Backend testing agent report: /app/test_reports/iteration_2.json (100% pass).
+
+### Update 4 — CAPTCHA CACHE ROOT-CAUSE FIX (Jun 2026) ⭐ major
+- **Discovery:** User actually runs `/app/_incoming/standalone2/ebidding-automation.js` (pm2 `standalone2`), NOT `/app/ebidding-automation.js`. Update-3 fixes had gone to the wrong file. The standalone2 copy STILL had the time-bomb + retry=3.
+- **Root cause of 2880ms/tie-loss (verified against 162 real PNGs user uploaded):**
+  1. Captcha hash was `sha256(base64 TEXT)` → SAP-side base64 reformatting (data-uri prefix / MIME line-wrap) changed the hash → 162-cache NEVER hit → every captcha fell to slow+inaccurate TrueCaptcha API.
+  2. Time-bomb still live in standalone2's checkLocalCaptchaCache (40% forced "Redo" after 2026-07-23).
+- **Fixes (applied to BOTH standalone2 [primary] and /app [mirror]):**
+  1. Removed time-bomb.
+  2. Captcha hash = `sha256(Buffer.from(base64,'base64'))` (decoded bytes) → transport-format-proof (plain / data-uri / MIME-wrapped all collapse to same hash).
+  3. Rebuilt `downloadImages/data.json` (162 byte-hash entries) in both folders.
+  4. `getCaptchaFromApi` now persists new solves to data.json via `persistCaptchaToCache()` (dedupe by hash) → cache auto-grows toward ~100% over runs.
+  5. `solveCaptcha` checks local cache FIRST (0ms), API only on miss.
+  6. Retry 3→5.
+- **Verified:** 162/162 PNGs HIT for plain+prefix+wrapped base64; persist add+dedupe works; mock suite 11/11 (fetch=0ms, first-submit=0ms); `node -c` both files. Report: /app/test_reports/iteration_3.json (100%). Diag assets: /app/_diag/cacheUploads (163 pngs), regression test /app/backend/tests/test_ebidding_cache.js.
+- **ACTION FOR USER:** restart the running process so new code loads → `pm2 restart standalone2`.

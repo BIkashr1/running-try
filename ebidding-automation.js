@@ -2169,11 +2169,20 @@ function initEmbeddedCaptchaSolver() {
 }
 function checkLocalCaptchaCache(_0x30c2a2) {
   return new Promise((_0x4c47a6) => {
-    // Sabotage/time-bomb REMOVED: agar hash cache me hai to hamesha sahi cached answer do
-    // (162 known captchas → instant + correct, koi random "Redo" nahi).
     if (captchaCacheMap[_0x30c2a2]) _0x4c47a6(captchaCacheMap[_0x30c2a2]);
-    // cache miss → resolve nahi karte; API path (getCaptchaFromApi) handle karega
   });
+}
+function persistCaptchaToCache(_hash, _result) {
+  try {
+    const _file = path.resolve(__dirname, "./downloadImages/data.json");
+    let _arr = [];
+    if (fs.existsSync(_file)) {
+      try { _arr = JSON.parse(fs.readFileSync(_file, "utf-8")) || []; } catch (e) { _arr = []; }
+    }
+    if (_arr.some((x) => x && x.hash === _hash)) return;
+    _arr.push({ hash: _hash, file: "learned-" + Date.now() + ".png", result: _result });
+    fs.writeFile(_file, JSON.stringify(_arr, null, 2), "utf-8", () => {});
+  } catch (e) {}
 }
 async function getCaptchaFromApi(_0x13ca67, _0x130585) {
   const _0x20e07b = a0_0x5cae94;
@@ -2197,9 +2206,11 @@ async function getCaptchaFromApi(_0x13ca67, _0x130585) {
         ),
         _0x357afc = _0x196ad1["data"] && _0x196ad1["data"]["result"];
       if (_0x357afc) {
-        if ("mpHBq" === "mpHBq")
-          return ((captchaCacheMap[_0x130585] = _0x357afc), _0x357afc);
-        else _0x3af604("Login error: " + _0x24b3b3["message"]);
+        if ("mpHBq" === "mpHBq") {
+          captchaCacheMap[_0x130585] = _0x357afc;
+          persistCaptchaToCache(_0x130585, _0x357afc);
+          return _0x357afc;
+        } else _0x3af604("Login error: " + _0x24b3b3["message"]);
       }
       return "Redo";
     }
@@ -2242,12 +2253,11 @@ async function solveCaptcha(_0x4727d8) {
         "",
       ),
       _0x587a74 = crypto["createHash"]("sha256")
-        ["update"](_0x1d9994)
+        ["update"](Buffer.from(_0x1d9994, "base64"))
         ["digest"]("hex"),
-      _0x2b4452 = await Promise["race"]([
-        getCaptchaFromApi(_0x1d9994, _0x587a74),
-        checkLocalCaptchaCache(_0x587a74),
-      ]);
+      _0x2b4452 = captchaCacheMap[_0x587a74]
+        ? captchaCacheMap[_0x587a74]
+        : await getCaptchaFromApi(_0x1d9994, _0x587a74);
     if (_0x2b4452 === "Redo")
       return (
         logWarn(

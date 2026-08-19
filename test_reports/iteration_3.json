@@ -1,0 +1,22 @@
+{
+  "summary": "Backend-only test of standalone SAP e-bidding captcha cache fixes in /app/_incoming/standalone2/ebidding-automation.js (and root mirror). Verified via `node -c` syntax, source grep for time-bomb removal, byte-hash HIT computation against 162 real PNGs across 3 base64 transport formats (plain, data-uri, MIME line-wrapped), persistCaptchaToCache append + dedupe round-trip on a temp copy, retry-count grep, and the existing mock regression suite. All 12 custom checks pass; run_tests.js prints 'TOTAL: 11 passed, 0 failed' with captcha-fetch=0ms and first-submit=0ms.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_ebidding_cache.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Dead-branch Redo (Math.random() < 0.4) still lives at line ~2496-2498 inside an unreachable `else` of `'AXvyU' === 'AXvyU'` — currently harmless (never executes), but recommend removing to eliminate cognitive load and any future refactor risk.",
+    "persistCaptchaToCache uses async fs.writeFile with an empty callback and no fsync — safe for the append/dedupe semantics tested here, but two near-simultaneous solves for different hashes could race and lose one write (read-modify-write without a lock). Low risk given single-process pm2 usage; consider fs.writeFileSync or a small in-memory write queue if concurrency ever increases.",
+    "checkLocalCaptchaCache Promise never resolves on cache miss (no `else` branch calling resolve). Currently unused for the hit-path (solveCaptcha checks captchaCacheMap directly), so it does not block, but the function shape is misleading — either remove or add a `resolve(null)` on miss."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "100%", "frontend": "N/A" },
+  "test_credentials": "None required (mock + local hash tests only, no TrueCaptcha / SAP calls).",
+  "seed_data_creation": "None. persist/dedupe test used a tmpdir sandbox copy of data.json; real /app/_incoming/standalone2/downloadImages/data.json (162 entries) confirmed untouched after the run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Regression test file at /app/backend/tests/test_ebidding_cache.js — run with `node /app/backend/tests/test_ebidding_cache.js`. Mock end-to-end suite: `node /app/_incoming/standalone2/run_tests.js`. Byte-hash formula: sha256(Buffer.from(base64.replace(/^data:image\\/(png|jpg|jpeg|gif);base64,/,''), 'base64')) — matches the stored hashes in downloadImages/data.json for all 3 transport variants (Node's Buffer.from tolerates whitespace/CRLF in the base64 input, which is why MIME line-wrap also hashes identically). Do NOT hit TrueCaptcha or rise.eye2serve.com from tests.",
+  "rca of the issue": "Prior production loss (2880ms first-submit) was caused by the local cache never hitting: (a) hashes were computed on the base64 TEXT string, so any SAP-side reformatting (data-uri prefix, MIME line-wrap) changed the hash and forced a slow/inaccurate TrueCaptcha API call; and (b) a time-bomb in checkLocalCaptchaCache in the standalone2 copy still deliberately returned 'Redo' with probability 0.4. Fix: hash the DECODED bytes (Buffer.from(b64,'base64')) so all transport formats collapse to the same 32-byte payload → identical sha256; time-bomb removed; getCaptchaFromApi now persists newly-solved answers to downloadImages/data.json (dedupe by hash) so the cache auto-grows; retry raised 3→5. Verified end-to-end: 162/162 real PNGs HIT for plain b64, data-uri, AND MIME-wrapped inputs."
+}
