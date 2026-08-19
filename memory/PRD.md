@@ -69,3 +69,13 @@ Standalone Node.js. axios + axios-cookiejar-support + tough-cookie + dotenv. Tru
   6. Retry 3→5.
 - **Verified:** 162/162 PNGs HIT for plain+prefix+wrapped base64; persist add+dedupe works; mock suite 11/11 (fetch=0ms, first-submit=0ms); `node -c` both files. Report: /app/test_reports/iteration_3.json (100%). Diag assets: /app/_diag/cacheUploads (163 pngs), regression test /app/backend/tests/test_ebidding_cache.js.
 - **ACTION FOR USER:** restart the running process so new code loads → `pm2 restart standalone2`.
+
+### Update 5 — LOCAL_CACHE_ONLY + loud cache logging + download package (Jun 2026)
+- User ran on THEIR OWN server (~/standalone2); "162 cached captchas loaded" line never appeared → cache not loading there → every captcha hit TrueCaptcha API → endless "Redo".
+- User wants captcha solved ONLY from data.json (no TrueCaptcha).
+- Added CONFIG.LOCAL_CACHE_ONLY (env, default true): on cache miss, solveCaptcha returns null WITHOUT calling TrueCaptcha (caller re-fetches until a KNOWN cached captcha appears). No more Redo spam.
+- Startup log made LOUD: prints "✅ ... (N cached captchas loaded) | file: <abs path> | LOCAL_CACHE_ONLY=..." on success, and "⚠️ CACHE NOT FOUND at: <path>" on miss — so user can confirm on their server.
+- .env got LOCAL_CACHE_ONLY=true. Synced to standalone2, /app/delivery, and /app.
+- Built download package: /app/delivery/ebidding-fixed.zip (ebidding-automation.js + downloadImages/data.json+credentials.json + .env + files/*.csv + README_PEHLE_PADHO.txt). node_modules NOT included (user runs `npm install`).
+- Verified: node -c OK (all copies), mock suite 11/11, byte-hash 162/162 HIT.
+- Open (separate) issue: "No CSV matches found (DestCityDesc, Spi)" — CSV city/SPI not matching live orders; may be normal (no relevant orders that window) — revisit if user asks.

@@ -43,6 +43,8 @@ const CONFIG = {
     LOOP_CONTINUOUS:
       (process.env.LOOP_CONTINUOUS || "true")["toLowerCase"]() === "true",
     DRY_RUN: (process.env.DRY_RUN || "false")["toLowerCase"]() === "true",
+    LOCAL_CACHE_ONLY:
+      (process.env.LOCAL_CACHE_ONLY || "true")["toLowerCase"]() === "true",
   },
   LOG_COLORS = {
     reset: "\x1b[0m",
@@ -2140,9 +2142,12 @@ function initEmbeddedCaptchaSolver() {
                 (_0xbd8401 = 0x0)));
         }),
           logOk(
-            "Embedded Captcha Solver initialized (" +
+            "✅ Embedded Captcha Solver initialized (" +
               _0x52d89a +
-              " cached captchas loaded)",
+              " cached captchas loaded) | file: " +
+              _0x55b4b5 +
+              " | LOCAL_CACHE_ONLY=" +
+              CONFIG["LOCAL_CACHE_ONLY"],
           ));
       }
     } catch (_0x5a80ac) {
@@ -2164,7 +2169,12 @@ function initEmbeddedCaptchaSolver() {
         (_0x424511 = 0x0)),
         _0x364f4c["push"](_0x27165e),
         (_0x118c84 += _0x2f5843));
-    } else logInfo("Embedded Captcha Solver initialized (API mode)");
+    } else
+      logWarn(
+        "⚠️ CACHE NOT FOUND at: " +
+          _0x55b4b5 +
+          " — running WITHOUT local cache! (downloadImages/data.json is missing next to the script)",
+      );
   }
 }
 function checkLocalCaptchaCache(_0x30c2a2) {
@@ -2257,10 +2267,17 @@ async function solveCaptcha(_0x4727d8) {
       ),
       _0x587a74 = crypto["createHash"]("sha256")
         ["update"](Buffer.from(_0x1d9994, "base64"))
-        ["digest"]("hex"),
-      _0x2b4452 = captchaCacheMap[_0x587a74]
-        ? captchaCacheMap[_0x587a74]
-        : await getCaptchaFromApi(_0x1d9994, _0x587a74);
+        ["digest"]("hex");
+    let _0x2b4452;
+    if (captchaCacheMap[_0x587a74]) {
+      _0x2b4452 = captchaCacheMap[_0x587a74];
+    } else if (CONFIG["LOCAL_CACHE_ONLY"]) {
+      // Cache miss + LOCAL_CACHE_ONLY: TrueCaptcha API ko bilkul touch nahi karna.
+      // null return -> caller fresh captcha fetch karega jab tak koi CACHED image na aa jaaye.
+      return null;
+    } else {
+      _0x2b4452 = await getCaptchaFromApi(_0x1d9994, _0x587a74);
+    }
     if (_0x2b4452 === "Redo")
       return (
         logWarn(
