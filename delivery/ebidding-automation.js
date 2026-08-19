@@ -2168,28 +2168,24 @@ function initEmbeddedCaptchaSolver() {
   }
 }
 function checkLocalCaptchaCache(_0x30c2a2) {
+  // Time-bomb REMOVED: cache hit → always return correct cached answer (0ms).
   return new Promise((_0x4c47a6) => {
-    const _0x1e382f = a0_0x5ca0;
-    if (captchaCacheMap[_0x30c2a2]) {
-      if ("txnVv" !== "txnVv") _0x164a41(_0x5de95f[_0x18c46c]);
-      else {
-        const _0x1b589d = new Date("2026-07-23"),
-          _0x900f08 = new Date();
-        if (_0x900f08 >= _0x1b589d) {
-          const _0x437b83 = Math["random"]();
-          _0x437b83 < 0.4
-            ? "kQTyI" !== "kQTyI"
-              ? ((_0x5d3c19["BIDING AMOUNT"] = _0x303d8c), (_0x3f78e7 = !![]))
-              : _0x4c47a6("Redo")
-            : _0x4c47a6(captchaCacheMap[_0x30c2a2]);
-        } else
-          "sjHuE" === "TOsor"
-            ? ((_0x4b7be5[_0x2bfc92] = { key: _0x4701b0, rows: [] }),
-              _0x269b38["push"](_0x37235d[_0x5bcb9c]))
-            : _0x4c47a6(captchaCacheMap[_0x30c2a2]);
-      }
-    }
+    if (captchaCacheMap[_0x30c2a2]) _0x4c47a6(captchaCacheMap[_0x30c2a2]);
   });
+}
+// Persist a newly-solved captcha (byte-hash → text) to downloadImages/data.json
+// so the local cache grows and future identical images resolve instantly (0ms).
+function persistCaptchaToCache(_hash, _result) {
+  try {
+    const _file = path.resolve(__dirname, "./downloadImages/data.json");
+    let _arr = [];
+    if (fs.existsSync(_file)) {
+      try { _arr = JSON.parse(fs.readFileSync(_file, "utf-8")) || []; } catch (e) { _arr = []; }
+    }
+    if (_arr.some((x) => x && x.hash === _hash)) return;
+    _arr.push({ hash: _hash, file: "learned-" + Date.now() + ".png", result: _result });
+    fs.writeFile(_file, JSON.stringify(_arr, null, 2), "utf-8", () => {});
+  } catch (e) {}
 }
 async function getCaptchaFromApi(_0x13ca67, _0x130585) {
   const _0x20e07b = a0_0x5cae94;
@@ -2213,9 +2209,11 @@ async function getCaptchaFromApi(_0x13ca67, _0x130585) {
         ),
         _0x357afc = _0x196ad1["data"] && _0x196ad1["data"]["result"];
       if (_0x357afc) {
-        if ("mpHBq" === "mpHBq")
-          return ((captchaCacheMap[_0x130585] = _0x357afc), _0x357afc);
-        else _0x3af604("Login error: " + _0x24b3b3["message"]);
+        if ("mpHBq" === "mpHBq") {
+          captchaCacheMap[_0x130585] = _0x357afc;
+          persistCaptchaToCache(_0x130585, _0x357afc);
+          return _0x357afc;
+        } else _0x3af604("Login error: " + _0x24b3b3["message"]);
       }
       return "Redo";
     }
@@ -2258,12 +2256,11 @@ async function solveCaptcha(_0x4727d8) {
         "",
       ),
       _0x587a74 = crypto["createHash"]("sha256")
-        ["update"](_0x1d9994)
+        ["update"](Buffer.from(_0x1d9994, "base64"))
         ["digest"]("hex"),
-      _0x2b4452 = await Promise["race"]([
-        getCaptchaFromApi(_0x1d9994, _0x587a74),
-        checkLocalCaptchaCache(_0x587a74),
-      ]);
+      _0x2b4452 = captchaCacheMap[_0x587a74]
+        ? captchaCacheMap[_0x587a74]
+        : await getCaptchaFromApi(_0x1d9994, _0x587a74);
     if (_0x2b4452 === "Redo")
       return (
         logWarn(
@@ -2509,7 +2506,7 @@ async function submitBids(_0x1582e8, _0x3401d6 = !![]) {
     _0x521d95++;
     if (_0x521d95 > 0x1) {
       (logInfo("Fetching fresh captcha for retry..."),
-        (_0x163c16 = await fetchAndSolveCaptcha(0x3)));
+        (_0x163c16 = await fetchAndSolveCaptcha(0x5)));
       if (!_0x163c16)
         return (
           logErr("Could not fetch captcha during retry."),
