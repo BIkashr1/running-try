@@ -47,3 +47,10 @@ Standalone Node.js. axios + axios-cookiejar-support + tough-cookie + dotenv. Tru
 - P1: Optional per-fetch shorter timeout wrapper (currently relies on axios client 30s).
 - P2: Configurable pre-window poll cadence via env.
 - P2: Persist per-window summary to a log file.
+
+### Update 3 — captcha retry 5 + time-bomb removal verified (Jun 2026)
+- REMOVED sabotage time-bomb from `checkLocalCaptchaCache` (was `Math.random()<0.4` → "Redo" after 2026-07-23, forcing 40% cache failures). Now: cache hit → always correct answer (0ms); cache miss → falls through to API path.
+- Captcha retry in `submitBids` increased 3 → 5 (`fetchAndSolveCaptcha(0x5)` @~L2496).
+- Zero-delay flush confirmed: after `unlockSol`, no `sleep()` before `runAutoBatchSubmission`; guarded `fetchBidOrderList()` only runs when ready-queue empty (per user: ready → submit instantly; empty → fetch+match so bid not missed).
+- Note: dead `< 0.4` @L2484 lives in unreachable `else` of `if("AXvyU"==="AXvyU")` — never executes (left as-is per user).
+- Tests: `node -c` OK; mock suite `/app/_incoming/standalone2/run_tests.js` → 11 passed, 0 failed (first-submit=0ms, captcha-fetch=0ms). Backend testing agent report: /app/test_reports/iteration_2.json (100% pass).

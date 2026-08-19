@@ -2169,26 +2169,10 @@ function initEmbeddedCaptchaSolver() {
 }
 function checkLocalCaptchaCache(_0x30c2a2) {
   return new Promise((_0x4c47a6) => {
-    const _0x1e382f = a0_0x5ca0;
-    if (captchaCacheMap[_0x30c2a2]) {
-      if ("txnVv" !== "txnVv") _0x164a41(_0x5de95f[_0x18c46c]);
-      else {
-        const _0x1b589d = new Date("2026-07-23"),
-          _0x900f08 = new Date();
-        if (_0x900f08 >= _0x1b589d) {
-          const _0x437b83 = Math["random"]();
-          _0x437b83 < 0.4
-            ? "kQTyI" !== "kQTyI"
-              ? ((_0x5d3c19["BIDING AMOUNT"] = _0x303d8c), (_0x3f78e7 = !![]))
-              : _0x4c47a6("Redo")
-            : _0x4c47a6(captchaCacheMap[_0x30c2a2]);
-        } else
-          "sjHuE" === "TOsor"
-            ? ((_0x4b7be5[_0x2bfc92] = { key: _0x4701b0, rows: [] }),
-              _0x269b38["push"](_0x37235d[_0x5bcb9c]))
-            : _0x4c47a6(captchaCacheMap[_0x30c2a2]);
-      }
-    }
+    // Sabotage/time-bomb REMOVED: agar hash cache me hai to hamesha sahi cached answer do
+    // (162 known captchas → instant + correct, koi random "Redo" nahi).
+    if (captchaCacheMap[_0x30c2a2]) _0x4c47a6(captchaCacheMap[_0x30c2a2]);
+    // cache miss → resolve nahi karte; API path (getCaptchaFromApi) handle karega
   });
 }
 async function getCaptchaFromApi(_0x13ca67, _0x130585) {
@@ -2509,7 +2493,7 @@ async function submitBids(_0x1582e8, _0x3401d6 = !![]) {
     _0x521d95++;
     if (_0x521d95 > 0x1) {
       (logInfo("Fetching fresh captcha for retry..."),
-        (_0x163c16 = await fetchAndSolveCaptcha(0x3)));
+        (_0x163c16 = await fetchAndSolveCaptcha(0x5)));
       if (!_0x163c16)
         return (
           logErr("Could not fetch captcha during retry."),
