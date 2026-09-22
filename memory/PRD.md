@@ -79,3 +79,13 @@ Standalone Node.js. axios + axios-cookiejar-support + tough-cookie + dotenv. Tru
 - Built download package: /app/delivery/ebidding-fixed.zip (ebidding-automation.js + downloadImages/data.json+credentials.json + .env + files/*.csv + README_PEHLE_PADHO.txt). node_modules NOT included (user runs `npm install`).
 - Verified: node -c OK (all copies), mock suite 11/11, byte-hash 162/162 HIT.
 - Open (separate) issue: "No CSV matches found (DestCityDesc, Spi)" — CSV city/SPI not matching live orders; may be normal (no relevant orders that window) — revisit if user asks.
+
+### Update 6 — Speed tuning for rank-1 (Jun 2026)
+- User: cache saving works great now; wants (a) NO extra fetch right at window open — flush the pre-matched batch instantly; (b) keep matching until ~last second then freeze; (c) mid-window incoming orders were saved a bit late → hurting rank.
+- Changes (all env-tunable, in standalone2 + delivery + /app + zip):
+  - ORDER_FREEZE_LEAD_MS (default 2000): pre-window fetch→match continues until ~2s before open (was hard 5s), then FREEZES; at open the ready batch flushes with no extra fetch (guarded fetch only if batch empty). Fresher batch, still no late fetch.
+  - INWINDOW_IDLE_MS (default 400): in-window idle wait cut from 800→400ms (and <1500ms-remaining path 200→150ms) so newly-arriving orders are detected+submitted faster.
+  - CAPTCHA_POLL_LEAD_MS surfaced in .env (default 5000).
+- Deliberately did NOT add pre-solved/"hot" captcha — SAP rejects stale captchas (prior learning); it would add a rejected attempt and hurt latency.
+- Verified: node -c OK (all copies), mock suite 11/11. Package rebuilt: /app/delivery/ebidding-fixed.zip.
+- Tuning guidance: fast network → lower ORDER_FREEZE_LEAD_MS to ~1000-1500 (fresher) & INWINDOW_IDLE_MS to ~250; slow network → raise freeze to 2500-3000 so last fetch finishes before open.

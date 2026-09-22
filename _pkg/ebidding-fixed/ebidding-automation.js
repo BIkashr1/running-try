@@ -2938,7 +2938,11 @@ async function runWindowCycle() {
     // (default 5s). Isse SAP jis pal captcha unlock kare, usi instant catch kar lete hain
     // (clock drift / SAP thoda jaldi khole to bhi miss nahi hoga).
     const pollLead = parseInt(process.env.CAPTCHA_POLL_LEAD_MS || "5000", 10);
-    while (adjustedNow() < timing.startTime - pollLead) {
+    // Orders ko window ke aur kareeb tak match karte raho (fresher batch), phir freeze.
+    // Default 2000ms — is se pehle wali last fetch open se pehle complete ho jaati hai (no late fetch).
+    // User chahe to ~1000-1500 kar sakta hai (aur fresh), ya slow network pe 3000 (safe).
+    const freezeLead = parseInt(process.env.ORDER_FREEZE_LEAD_MS || "2000", 10);
+    while (adjustedNow() < timing.startTime - freezeLead) {
       const remaining = timing.startTime - adjustedNow();
       windowStats.fetches++;
       await fetchBidOrderList();
@@ -3047,6 +3051,7 @@ async function runWindowCycle() {
 
   // Continuous loop for the remainder of the slot (the real fix: orders that
   // appear only AFTER the window opens get picked up here).
+  const inWindowIdle = parseInt(process.env.INWINDOW_IDLE_MS || "400", 10);
   while (adjustedNow() < timing.endTime) {
     const remaining = timing.endTime - adjustedNow();
     windowStats.fetches++;
@@ -3061,8 +3066,9 @@ async function runWindowCycle() {
       await runAutoBatchSubmission(null);
       windowStats.submittedBatches += submittedCount() - before;
     } else {
-      // Nothing new to submit right now — pause a bit (also cuts log spam), then fetch again.
-      await sleep(remaining < 1500 ? 200 : 800);
+      // Kuch naya submit karne ko nahi — chhota pause (log spam bhi kam), phir dobara fetch.
+      // Chhota idle = mid-window naye order jaldi pakde jaate hain (behtar rank).
+      await sleep(remaining < 1500 ? 150 : inWindowIdle);
     }
   }
 
