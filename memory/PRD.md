@@ -89,3 +89,11 @@ Standalone Node.js. axios + axios-cookiejar-support + tough-cookie + dotenv. Tru
 - Deliberately did NOT add pre-solved/"hot" captcha — SAP rejects stale captchas (prior learning); it would add a rejected attempt and hurt latency.
 - Verified: node -c OK (all copies), mock suite 11/11. Package rebuilt: /app/delivery/ebidding-fixed.zip.
 - Tuning guidance: fast network → lower ORDER_FREEZE_LEAD_MS to ~1000-1500 (fresher) & INWINDOW_IDLE_MS to ~250; slow network → raise freeze to 2500-3000 so last fetch finishes before open.
+
+### Update 7 — matched-order visibility, 1164-first priority, .env.txt (Jun 2026)
+- User requests: (1) log should show WHICH orders matched + their SPI; (2) provide a copy-paste .env.txt; (3) RE-INTRODUCE SPI-1164 priority: 1164 groups must be submitted FIRST (own batch, not mixed with non-1164) — in the pre-window ready batch AND for in-window fetched orders.
+- Changes (standalone2 + delivery + /app + zip):
+  - prepareCsvBatches: split keys into 1164-groups vs rest; greedy-batch 1164 first (own batches), then rest. Applies to pre-window + in-window (applyCsvDataToOrders → prepareCsvBatches every cycle). Reverses the earlier "1164 priority removed" decision per new user request.
+  - New logMatchedOrdersIfChanged(): prints "🎯 MATCHED ORDERS (N rows, k ×1164 ⭐ save first)" with Dest | SPI | Amount | Order for each matched row; fires only when the matched set changes (no spam). Called from applyCsvDataToOrders.
+  - Added .env.txt (copy-paste) in delivery + zip.
+- Test suite updated (run_tests.js TEST B) to assert new 1164-first batching; all 11/11 pass. node -c OK. Zip rebuilt.

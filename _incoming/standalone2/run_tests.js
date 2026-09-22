@@ -56,11 +56,11 @@ function load(exposeExtra) {
     X.sd(b, csv, ["DELME"], {SlotNumber:"S"});
     X.ap();
     let st = X.st();
-    assert(st.activeKeys.length === 3, "first batch = 3 rows (max-3)", results);
-    assert(st.activeKeys[0] === "ROW:A:1", "natural order (no 1164 priority): first match A is first", results);
-    assert(JSON.stringify(st.pendingBatches[0]) === JSON.stringify(["CLUB:CL1"]), "club group atomic (own batch)", results);
+    assert(st.activeKeys.length === 1 && st.activeKeys[0] === "ROW:B:1", "1164 group is FIRST batch (priority, own batch)", results);
+    assert(JSON.stringify(st.pendingBatches[0]) === JSON.stringify(["ROW:A:1","ROW:C:1"]), "non-1164 greedy max-3 batch comes after 1164", results);
+    assert(JSON.stringify(st.pendingBatches[1]) === JSON.stringify(["CLUB:CL1"]), "club group atomic (own batch)", results);
     X.mark(); X.ap(); st = X.st();
-    assert(st.activeKeys[0] === "CLUB:CL1", "already-submitted batch skipped on re-match", results);
+    assert(st.activeKeys[0] === "ROW:A:1", "after 1164 submitted, next batch is non-1164", results);
     assert(X.is1164("1164") && X.is1164("1164-") && !X.is1164("1162"), "isSpi1164 detection", results);
   }
 

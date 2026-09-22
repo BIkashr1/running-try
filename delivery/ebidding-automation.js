@@ -1859,36 +1859,31 @@ function prepareCsvBatches(_0x1ae1fb) {
       ((csvBatchState["groupsByKey"][_0x3b70ae["key"]] = _0x3b70ae),
         !_0x3a87e7[_0x3b70ae["key"]] && _0x3e490c["push"](_0x3b70ae["key"]));
     }));
-  // SPI-1164 priority REMOVED (user request): jo match mile use natural order me utha lo.
-  // Sirf greedy fill (max CSV_BATCH_SIZE) + group atomic — koi SPI ranking nahi.
+  // SPI-1164 PRIORITY (user request): jin groups me 1164 hai wo PEHLE batch(es) me jaate hain,
+  // aur 1164 ko non-1164 ke saath same batch me MIX nahi karte → 1164 ka save request sabse pehle.
   const _0x4d3a58 = CONFIG["CSV_BATCH_SIZE"] || 0x3;
-  let _0xfaf359 = [],
-    _0x4814e4 = 0x0;
-  for (let _0x20fd76 = 0x0; _0x20fd76 < _0x3e490c["length"]; _0x20fd76++) {
-    const _0x35f3c2 = _0x3e490c[_0x20fd76],
-      _0x11f433 = csvBatchState["groupsByKey"][_0x35f3c2],
-      _0x3e5166 = _0x11f433 ? _0x11f433["rows"]["length"] : 0x1;
-    (_0xfaf359["length"] > 0x0 &&
-      _0x4814e4 + _0x3e5166 > _0x4d3a58 &&
-      (csvBatchState["pendingBatches"]["push"](_0xfaf359),
-      (_0xfaf359 = []),
-      (_0x4814e4 = 0x0)),
-      _0xfaf359["push"](_0x35f3c2),
-      (_0x4814e4 += _0x3e5166));
-  }
-  if (_0xfaf359["length"] > 0x0) {
-    if ("rFfOt" !== "rFfOt")
-      return (
-        _0x45b76b["response"]
-          ? _0x22f2db(
-              "VacVendorRankingNewSet failed: HTTP " +
-                _0x503cd7["response"]["status"],
-            )
-          : _0x131b09("VacVendorRankingNewSet error: " + _0x20b8cc["message"]),
-        ![]
-      );
-    else csvBatchState["pendingBatches"]["push"](_0xfaf359);
-  }
+  const _is1164Key = (_k) => {
+    const _g = csvBatchState["groupsByKey"][_k];
+    return _g && _g["rows"]["some"]((_r) => isSpi1164(_r["item"] && _r["item"]["Spi"]));
+  };
+  const _priorityKeys = _0x3e490c["filter"](_is1164Key);
+  const _otherKeys = _0x3e490c["filter"]((_k) => !_is1164Key(_k));
+  const _buildInto = (_keys) => {
+    let _batch = [],
+      _count = 0x0;
+    for (let _i = 0x0; _i < _keys["length"]; _i++) {
+      const _key = _keys[_i],
+        _grp = csvBatchState["groupsByKey"][_key],
+        _n = _grp ? _grp["rows"]["length"] : 0x1;
+      if (_batch["length"] > 0x0 && _count + _n > _0x4d3a58) {
+        csvBatchState["pendingBatches"]["push"](_batch);
+        ((_batch = []), (_count = 0x0));
+      }
+      (_batch["push"](_key), (_count += _n));
+    }
+    if (_batch["length"] > 0x0) csvBatchState["pendingBatches"]["push"](_batch);
+  };
+  (_buildInto(_priorityKeys), _buildInto(_otherKeys)); // 1164 batches FIRST, phir baaki SPI
   csvBatchState["completed"] = _0x3e490c["length"] === 0x0;
 }
 function applyNextCsvBatch() {
@@ -2013,6 +2008,7 @@ function applyCsvDataToOrders() {
       0x0,
     );
   if (windowStats) windowStats.matched = _0x398f9e;
+  if (_0x12bf63 > 0x0) logMatchedOrdersIfChanged();
   return (
     logOk(
       "CSV matching: " +
@@ -2743,6 +2739,55 @@ function countHandled1164() {
 }
 
 // Show exactly which orders (Destination / SPI / Amount) are about to be bid
+function logMatchedOrdersIfChanged() {
+  const _all = [];
+  Object["keys"](csvBatchState["groupsByKey"] || {})["forEach"]((_k) => {
+    const _g = csvBatchState["groupsByKey"][_k];
+    if (_g) _g["rows"]["forEach"]((_r) => _all["push"](_r));
+  });
+  if (_all["length"] === 0x0) return;
+  const _sig = _all
+    ["map"](
+      (_r) =>
+        (_r["item"] &&
+          _r["item"]["SapOrderId"] +
+            "/" +
+            _r["item"]["Posnr"] +
+            ":" +
+            _r["item"]["Spi"]) ||
+        "",
+    )
+    ["sort"]()
+    ["join"]("|");
+  if (_sig === logMatchedOrdersIfChanged.lastSig) return;
+  logMatchedOrdersIfChanged.lastSig = _sig;
+  const _n1164 = _all["filter"]((_r) =>
+    isSpi1164(_r["item"] && _r["item"]["Spi"]),
+  )["length"];
+  logBold(
+    "🎯 MATCHED ORDERS (" +
+      _all["length"] +
+      " rows" +
+      (_n1164 ? ", " + _n1164 + " ×1164 ⭐ save first" : "") +
+      "):",
+  );
+  _all["forEach"]((_r) => {
+    const _it = _r["item"] || {};
+    logInfo(
+      "   • Dest: " +
+        (_it["DestCityDesc"] || "?") +
+        " | SPI: " +
+        (_it["Spi"] || "?") +
+        " | Amount: " +
+        _r["bidAmount"] +
+        " | Order: " +
+        (_it["SapOrderId"] || "?") +
+        "/" +
+        (_it["Posnr"] || "?") +
+        (isSpi1164(_it["Spi"]) ? "   ⭐ 1164" : ""),
+    );
+  });
+}
 function logActiveBatchDetails(tag) {
   const keys = csvBatchState["activeKeys"] || [];
   if (keys.length === 0) return;
