@@ -58,7 +58,19 @@ const CONFIG = {
     gray: "\u001b[90m",
   };
 function ts() {
-  return "";
+  const _d = new Date();
+  const _p = (_n, _l = 2) => String(_n).padStart(_l, "0");
+  return (
+    "[" +
+    _p(_d.getHours()) +
+    ":" +
+    _p(_d.getMinutes()) +
+    ":" +
+    _p(_d.getSeconds()) +
+    "." +
+    _p(_d.getMilliseconds(), 3) +
+    "]"
+  );
 }
 function log(_0x3981ba) {
   const _0x1940cf = a0_0x5cae94;
@@ -221,6 +233,7 @@ let csrfToken = null,
   csvData = [],
   deleteList = [],
   currentSlotNumber = null,
+  lastFetchRttMs = 0,
   csvBatchState = {
     submittedKeys: {},
     activeKeys: [],
@@ -444,11 +457,13 @@ async function fetchBidOrderList() {
       NavBidStateRange: [],
     };
   try {
+    const _tReq = Date.now();
     const _0x346f0f = await client["post"](
       "/sap/opu/odata/sap/ZVC_TRANSPORTER_SRV/BidOrderListSet",
       _0x2bb7b0,
       { headers: { "X-Csrf-Token": csrfToken } },
     );
+    lastFetchRttMs = Date.now() - _tReq;
     ((orderListData = _0x346f0f["data"]["d"]),
       (plantConf = orderListData["NavBidPlntConf"]["results"][0x0]),
       (bidRows = orderListData["NavBidSchVendors"]["results"]),
@@ -2438,6 +2453,7 @@ async function submitBidsSingleStrategy(_0x15a8fa, _0x53bdb1) {
         { type: "S", message: "DRY RUN - not submitted" })
       : (_0x53b6a7("Captcha solver error: " + _0x183dc3["message"]), null);
   try {
+    const _tPost = Date.now();
     const _0x1933fb = await client["post"](
         "/sap/opu/odata/sap/ZVC_TRANSPORTER_SRV/EBiddingSaveSet",
         _0xd0321f,
@@ -2448,6 +2464,7 @@ async function submitBidsSingleStrategy(_0x15a8fa, _0x53bdb1) {
           ? _0x1933fb["data"]["d"]
           : {},
       _0xd95847 = _0x5e43ee["NavEBiddingMessage"] || {};
+    logInfo("⏱ SAP save POST round-trip: " + (Date.now() - _tPost) + "ms");
     if (_0xd95847["Type"] === "S")
       return (
         logOk(
@@ -2721,8 +2738,11 @@ function computeWindowTiming() {
     plantConf["SlotEndTime"],
   );
   if (serverNow === null || startTime === null || endTime === null) return null;
+  // Latency-compensated: SAP ne response banaya tab ka time hai; wire par pahunchte-pahunchte
+  // asli SAP time ~rtt/2 aage badh chuka hota hai. Isliye offset me rtt/2 add karte hain
+  // taaki adjustedNow() SAP ke ORIGINAL time ke aur kareeb rahe.
   return {
-    clockOffset: serverNow - Date.now(),
+    clockOffset: serverNow + Math.round(lastFetchRttMs / 2) - Date.now(),
     startTime: startTime,
     endTime: endTime,
     slot: plantConf["SlotNumber"],

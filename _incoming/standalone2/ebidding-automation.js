@@ -58,7 +58,19 @@ const CONFIG = {
     gray: "\u001b[90m",
   };
 function ts() {
-  return "";
+  const _d = new Date();
+  const _p = (_n, _l = 2) => String(_n).padStart(_l, "0");
+  return (
+    "[" +
+    _p(_d.getHours()) +
+    ":" +
+    _p(_d.getMinutes()) +
+    ":" +
+    _p(_d.getSeconds()) +
+    "." +
+    _p(_d.getMilliseconds(), 3) +
+    "]"
+  );
 }
 function log(_0x3981ba) {
   const _0x1940cf = a0_0x5cae94;
@@ -221,6 +233,7 @@ let csrfToken = null,
   csvData = [],
   deleteList = [],
   currentSlotNumber = null,
+  lastFetchRttMs = 0,
   csvBatchState = {
     submittedKeys: {},
     activeKeys: [],
@@ -444,11 +457,13 @@ async function fetchBidOrderList() {
       NavBidStateRange: [],
     };
   try {
+    const _tReq = Date.now();
     const _0x346f0f = await client["post"](
       "/sap/opu/odata/sap/ZVC_TRANSPORTER_SRV/BidOrderListSet",
       _0x2bb7b0,
       { headers: { "X-Csrf-Token": csrfToken } },
     );
+    lastFetchRttMs = Date.now() - _tReq;
     ((orderListData = _0x346f0f["data"]["d"]),
       (plantConf = orderListData["NavBidPlntConf"]["results"][0x0]),
       (bidRows = orderListData["NavBidSchVendors"]["results"]),
@@ -2438,6 +2453,7 @@ async function submitBidsSingleStrategy(_0x15a8fa, _0x53bdb1) {
         { type: "S", message: "DRY RUN - not submitted" })
       : (_0x53b6a7("Captcha solver error: " + _0x183dc3["message"]), null);
   try {
+    const _tPost = Date.now();
     const _0x1933fb = await client["post"](
         "/sap/opu/odata/sap/ZVC_TRANSPORTER_SRV/EBiddingSaveSet",
         _0xd0321f,
@@ -2448,6 +2464,7 @@ async function submitBidsSingleStrategy(_0x15a8fa, _0x53bdb1) {
           ? _0x1933fb["data"]["d"]
           : {},
       _0xd95847 = _0x5e43ee["NavEBiddingMessage"] || {};
+    logInfo("⏱ SAP save POST round-trip: " + (Date.now() - _tPost) + "ms");
     if (_0xd95847["Type"] === "S")
       return (
         logOk(
@@ -2721,8 +2738,11 @@ function computeWindowTiming() {
     plantConf["SlotEndTime"],
   );
   if (serverNow === null || startTime === null || endTime === null) return null;
+  // Latency-compensated: SAP ne response banaya tab ka time hai; wire par pahunchte-pahunchte
+  // asli SAP time ~rtt/2 aage badh chuka hota hai. Isliye offset me rtt/2 add karte hain
+  // taaki adjustedNow() SAP ke ORIGINAL time ke aur kareeb rahe.
   return {
-    clockOffset: serverNow - Date.now(),
+    clockOffset: serverNow + Math.round(lastFetchRttMs / 2) - Date.now(),
     startTime: startTime,
     endTime: endTime,
     slot: plantConf["SlotNumber"],
@@ -3031,40 +3051,69 @@ async function runWindowCycle() {
   // par aggressive ho jaati hai — taaki unlock ka exact pal pakad ke sabse pehle submit karein.
   const _lead = parseInt(process.env.CAPTCHA_POLL_LEAD_MS || "5000", 10);
   const _fast = parseInt(process.env.FAST_MAX_DELAY_MS || "10", 10);
+  const _conc = Math.max(
+    1,
+    parseInt(process.env.CAPTCHA_POLL_CONCURRENCY || "3", 10),
+  );
   logBold(
-    "PHASE 2: polling SAP captcha to detect UNLOCK (started ~" +
+    "PHASE 2: polling SAP captcha to detect UNLOCK (" +
+      _conc +
+      " parallel probes, started ~" +
       Math.max(0, Math.round((timing.startTime - adjustedNow()) / 100) / 10) +
       "s before open)...",
   );
   let unlockSol = null;
   let unlockImg = null;
   const pollStart = Date.now();
-  while (adjustedNow() < timing.endTime) {
-    windowStats.captchaPolls++;
-    const tF = Date.now();
-    unlockImg = await fetchCaptcha(true); // null = still locked; image = UNLOCKED
-    if (unlockImg) {
-      if (windowStats.captchaUnlockMs == null) {
-        windowStats.captchaFetchMs = Date.now() - tF;
-        windowStats.captchaUnlockMs = Date.now() - pollStart;
-        logOk(
-          "🔓 Captcha UNLOCKED after " +
-            windowStats.captchaPolls +
-            " polls / " +
-            windowStats.captchaUnlockMs +
-            "ms | fetch=" +
-            windowStats.captchaFetchMs +
-            "ms",
-        );
+  // Bounded-concurrency poller: hamesha _conc captcha requests "hawa me" rehti hain. SAP jis
+  // pal unlock kare, koi in-flight request turant image le aati hai → detect latency kam
+  // (sequential 1-by-1 me har poll ~150-180ms lagta tha; parallel me overlap ho jaata hai).
+  await new Promise((_resolveAll) => {
+    let _done = false;
+    const _finish = () => {
+      if (!_done) {
+        _done = true;
+        _resolveAll();
       }
-      unlockSol = await solveCaptcha(unlockImg); // SAP ka CURRENT captcha (yahi valid hai)
-      if (unlockSol) break; // got a solved captcha → go submit
-      // solve gave "Redo"/empty → DO NOT abandon window; fetch a fresh captcha & retry
-      continue;
-    }
-    // Back-to-back polling (jaise old secure.js): unlock ka exact pal turant pakdo → sabse pehle submit
-    await sleep(_fast);
-  }
+    };
+    const _probe = async () => {
+      while (!_done && adjustedNow() < timing.endTime) {
+        windowStats.captchaPolls++;
+        const tF = Date.now();
+        let img = null;
+        try {
+          img = await fetchCaptcha(true);
+        } catch (e) {
+          img = null;
+        }
+        if (_done) return;
+        if (img) {
+          if (windowStats.captchaUnlockMs == null) {
+            windowStats.captchaFetchMs = Date.now() - tF;
+            windowStats.captchaUnlockMs = Date.now() - pollStart;
+            logOk(
+              "🔓 Captcha UNLOCKED after " +
+                windowStats.captchaPolls +
+                " polls / " +
+                windowStats.captchaUnlockMs +
+                "ms | fetch=" +
+                windowStats.captchaFetchMs +
+                "ms",
+            );
+          }
+          const sol = await solveCaptcha(img); // 0ms cache-hit; miss → null (keep probing)
+          if (_done) return;
+          if (sol) {
+            ((unlockImg = img), (unlockSol = sol), _finish());
+            return;
+          }
+        }
+        if (!_done) await sleep(_fast);
+      }
+      _finish();
+    };
+    for (let _i = 0; _i < _conc; _i++) _probe();
+  });
 
   if (!unlockSol) {
     logWarn(

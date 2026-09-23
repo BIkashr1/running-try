@@ -97,3 +97,15 @@ Standalone Node.js. axios + axios-cookiejar-support + tough-cookie + dotenv. Tru
   - New logMatchedOrdersIfChanged(): prints "🎯 MATCHED ORDERS (N rows, k ×1164 ⭐ save first)" with Dest | SPI | Amount | Order for each matched row; fires only when the matched set changes (no spam). Called from applyCsvDataToOrders.
   - Added .env.txt (copy-paste) in delivery + zip.
 - Test suite updated (run_tests.js TEST B) to assert new 1164-first batching; all 11/11 pass. node -c OK. Zip rebuilt.
+
+### Update 8 — timestamps, POST-timing, SAP clock compensation, parallel unlock polling (Jun 2026)
+- Live logs: every bid REJECTED with "Same amount has been bid by other vendor" = SAP hard-rejects duplicate amounts; only the FIRST submitter of an amount is accepted. User confirmed amounts are a HARD limit (cannot bid lower) → pure speed race.
+- Measured (WINDOW SUMMARY): net~88-90ms; unlock-detect 161-184ms (1 poll); captcha solve 0ms (cache hit ✅); first-submit 248ms (good) vs 2305ms (SAP slow at contended open).
+- Changes (standalone2 + delivery + /app + zip):
+  - ts() now returns [HH:MM:SS.mmm] on every log line (correlate submits with :15/:45).
+  - submitBidsSingleStrategy logs "⏱ SAP save POST round-trip: Xms" (isolates our-side vs SAP-side delay).
+  - computeWindowTiming: clockOffset now latency-compensated (+lastFetchRttMs/2) → adjustedNow ≈ true SAP time.
+  - Unlock poll loop replaced with bounded-concurrency PARALLEL poller (CAPTCHA_POLL_CONCURRENCY, default 3): keeps N captcha GETs in flight so the unlock instant is caught with minimal detect latency (was sequential ~150-180ms/poll). fetchCaptcha is a read-only GET → parallel-safe.
+  - New env CAPTCHA_POLL_CONCURRENCY documented in .env/.env.example.
+- Verified: node -c OK, mock suite 11/11. Zip rebuilt.
+- HONEST NOTE to user: remaining latency is largely SAP POST time (server-side, variable); with identical amounts and no ability to bid lower, wins depend on beating competitors by ms. Parallel polling + 0ms cache + instant flush is near the client-side limit.
