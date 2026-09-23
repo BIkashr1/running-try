@@ -3007,7 +3007,7 @@ async function runWindowCycle() {
     // Default 2000ms — is se pehle wali last fetch open se pehle complete ho jaati hai (no late fetch).
     // User chahe to ~1000-1500 kar sakta hai (aur fresh), ya slow network pe 3000 (safe).
     const freezeLead = parseInt(process.env.ORDER_FREEZE_LEAD_MS || "2000", 10);
-    while (adjustedNow() < timing.startTime - freezeLead) {
+    while (adjustedNow() < timing.startTime - Math.max(pollLead, freezeLead)) {
       const remaining = timing.startTime - adjustedNow();
       windowStats.fetches++;
       await fetchBidOrderList();
@@ -3051,69 +3051,42 @@ async function runWindowCycle() {
   // par aggressive ho jaati hai — taaki unlock ka exact pal pakad ke sabse pehle submit karein.
   const _lead = parseInt(process.env.CAPTCHA_POLL_LEAD_MS || "5000", 10);
   const _fast = parseInt(process.env.FAST_MAX_DELAY_MS || "10", 10);
-  const _conc = Math.max(
-    1,
-    parseInt(process.env.CAPTCHA_POLL_CONCURRENCY || "3", 10),
-  );
   logBold(
-    "PHASE 2: polling SAP captcha to detect UNLOCK (" +
-      _conc +
-      " parallel probes, started ~" +
+    "PHASE 2: polling SAP captcha to detect UNLOCK (started ~" +
       Math.max(0, Math.round((timing.startTime - adjustedNow()) / 100) / 10) +
       "s before open)...",
   );
   let unlockSol = null;
   let unlockImg = null;
   const pollStart = Date.now();
-  // Bounded-concurrency poller: hamesha _conc captcha requests "hawa me" rehti hain. SAP jis
-  // pal unlock kare, koi in-flight request turant image le aati hai → detect latency kam
-  // (sequential 1-by-1 me har poll ~150-180ms lagta tha; parallel me overlap ho jaata hai).
-  await new Promise((_resolveAll) => {
-    let _done = false;
-    const _finish = () => {
-      if (!_done) {
-        _done = true;
-        _resolveAll();
+  // SEQUENTIAL single-fetch polling (parallel HATA diya). SAP ka captcha SESSION-BOUND hai:
+  // har fetchCaptcha GET server ka expected-answer OVERWRITE kar deta hai. Parallel/multiple
+  // fetch se hum ek image solve karte the par SAP ko doosri (aakhri) image expected hoti thi
+  // → "Worng Captcha Value". Ek-ek karke fetch karo → jo image mili WAHI SAP ko expected hai.
+  while (adjustedNow() < timing.endTime) {
+    windowStats.captchaPolls++;
+    const tF = Date.now();
+    unlockImg = await fetchCaptcha(true); // null = locked; image = UNLOCKED
+    if (unlockImg) {
+      if (windowStats.captchaUnlockMs == null) {
+        windowStats.captchaFetchMs = Date.now() - tF;
+        windowStats.captchaUnlockMs = Date.now() - pollStart;
+        logOk(
+          "🔓 Captcha UNLOCKED after " +
+            windowStats.captchaPolls +
+            " polls / " +
+            windowStats.captchaUnlockMs +
+            "ms | fetch=" +
+            windowStats.captchaFetchMs +
+            "ms",
+        );
       }
-    };
-    const _probe = async () => {
-      while (!_done && adjustedNow() < timing.endTime) {
-        windowStats.captchaPolls++;
-        const tF = Date.now();
-        let img = null;
-        try {
-          img = await fetchCaptcha(true);
-        } catch (e) {
-          img = null;
-        }
-        if (_done) return;
-        if (img) {
-          if (windowStats.captchaUnlockMs == null) {
-            windowStats.captchaFetchMs = Date.now() - tF;
-            windowStats.captchaUnlockMs = Date.now() - pollStart;
-            logOk(
-              "🔓 Captcha UNLOCKED after " +
-                windowStats.captchaPolls +
-                " polls / " +
-                windowStats.captchaUnlockMs +
-                "ms | fetch=" +
-                windowStats.captchaFetchMs +
-                "ms",
-            );
-          }
-          const sol = await solveCaptcha(img); // 0ms cache-hit; miss → null (keep probing)
-          if (_done) return;
-          if (sol) {
-            ((unlockImg = img), (unlockSol = sol), _finish());
-            return;
-          }
-        }
-        if (!_done) await sleep(_fast);
-      }
-      _finish();
-    };
-    for (let _i = 0; _i < _conc; _i++) _probe();
-  });
+      unlockSol = await solveCaptcha(unlockImg); // 0ms cache-hit
+      if (unlockSol) break; // solved → turant submit (yahi image SAP ko valid hai)
+      continue; // cache miss/Redo → agla fresh captcha
+    }
+    await sleep(_fast); // back-to-back: unlock ka exact pal turant pakdo
+  }
 
   if (!unlockSol) {
     logWarn(

@@ -3007,7 +3007,7 @@ async function runWindowCycle() {
     // Default 2000ms — is se pehle wali last fetch open se pehle complete ho jaati hai (no late fetch).
     // User chahe to ~1000-1500 kar sakta hai (aur fresh), ya slow network pe 3000 (safe).
     const freezeLead = parseInt(process.env.ORDER_FREEZE_LEAD_MS || "2000", 10);
-    while (adjustedNow() < timing.startTime - freezeLead) {
+    while (adjustedNow() < timing.startTime - Math.max(pollLead, freezeLead)) {
       const remaining = timing.startTime - adjustedNow();
       windowStats.fetches++;
       await fetchBidOrderList();
@@ -3059,10 +3059,14 @@ async function runWindowCycle() {
   let unlockSol = null;
   let unlockImg = null;
   const pollStart = Date.now();
+  // SEQUENTIAL single-fetch polling (parallel HATA diya). SAP ka captcha SESSION-BOUND hai:
+  // har fetchCaptcha GET server ka expected-answer OVERWRITE kar deta hai. Parallel/multiple
+  // fetch se hum ek image solve karte the par SAP ko doosri (aakhri) image expected hoti thi
+  // → "Worng Captcha Value". Ek-ek karke fetch karo → jo image mili WAHI SAP ko expected hai.
   while (adjustedNow() < timing.endTime) {
     windowStats.captchaPolls++;
     const tF = Date.now();
-    unlockImg = await fetchCaptcha(true); // null = still locked; image = UNLOCKED
+    unlockImg = await fetchCaptcha(true); // null = locked; image = UNLOCKED
     if (unlockImg) {
       if (windowStats.captchaUnlockMs == null) {
         windowStats.captchaFetchMs = Date.now() - tF;
@@ -3077,13 +3081,11 @@ async function runWindowCycle() {
             "ms",
         );
       }
-      unlockSol = await solveCaptcha(unlockImg); // SAP ka CURRENT captcha (yahi valid hai)
-      if (unlockSol) break; // got a solved captcha → go submit
-      // solve gave "Redo"/empty → DO NOT abandon window; fetch a fresh captcha & retry
-      continue;
+      unlockSol = await solveCaptcha(unlockImg); // 0ms cache-hit
+      if (unlockSol) break; // solved → turant submit (yahi image SAP ko valid hai)
+      continue; // cache miss/Redo → agla fresh captcha
     }
-    // Back-to-back polling (jaise old secure.js): unlock ka exact pal turant pakdo → sabse pehle submit
-    await sleep(_fast);
+    await sleep(_fast); // back-to-back: unlock ka exact pal turant pakdo
   }
 
   if (!unlockSol) {

@@ -109,3 +109,10 @@ Standalone Node.js. axios + axios-cookiejar-support + tough-cookie + dotenv. Tru
   - New env CAPTCHA_POLL_CONCURRENCY documented in .env/.env.example.
 - Verified: node -c OK, mock suite 11/11. Zip rebuilt.
 - HONEST NOTE to user: remaining latency is largely SAP POST time (server-side, variable); with identical amounts and no ability to bid lower, wins depend on beating competitors by ms. Parallel polling + 0ms cache + instant flush is near the client-side limit.
+
+### Update 9 — REVERT parallel polling (broke captcha) + earlier poll start (Jun 2026)
+- Live log: FLUSH captcha rejected "Worng Captcha Value" repeatedly. ROOT CAUSE: SAP captcha is SESSION-BOUND — each fetchCaptcha GET overwrites the server's expected answer. The parallel poller (Update 8) fetched multiple images; we solved one but SAP expected the last-fetched → wrong captcha. Retry (sequential) worked, confirming it.
+- Fix: REVERTED unlock poller to SEQUENTIAL single-fetch (the image we solve is exactly what SAP expects). Removed CAPTCHA_POLL_CONCURRENCY (from code + .env/.env.example).
+- Also: pre-window fetch loop now stops at startTime - max(pollLead, freezeLead) (i.e., >=5s before open) so captcha polling starts earlier instead of being pushed to ~0.1s before open by slow ~2.6s order fetches.
+- Note from logs: order-list fetch takes ~2.6s on user's network; SAP save POST 0.7-3.3s (server-side, variable, contended at open). first-submit high mainly due to wrong-captcha retries — now fixed by sequential.
+- Verified: node -c OK, mock 11/11. Zip rebuilt.
